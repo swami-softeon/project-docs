@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WMS Solution Design - Multiple Units Per Case Per Pallet</title>
+<style>
+    body {
+        font-family: Arial, Helvetica, sans-serif;
+        margin: 40px;
+        line-height: 1.6;
+        color: #333;
+    }
+
+    h1 {
+        color: #1f4e79;
+        border-bottom: 3px solid #1f4e79;
+        padding-bottom: 10px;
+    }
+
+    h2 {
+        color: #2f75b5;
+        margin-top: 30px;
+    }
+
+    h3 {
+        color: #4472c4;
+    }
+
+    .section {
+        margin-top: 20px;
+    }
+
+    .box {
+        background-color: #f4f7fb;
+        border-left: 5px solid #2f75b5;
+        padding: 15px;
+        margin: 15px 0;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+    }
+
+    th, td {
+        border: 1px solid #d0d0d0;
+        padding: 10px;
+        text-align: left;
+    }
+
+    th {
+        background-color: #dce6f1;
+    }
+
+    .approved {
+        background-color: #e2f0d9;
+        border-left: 5px solid #70ad47;
+        padding: 15px;
+        margin-top: 20px;
+    }
+
+    ul {
+        margin-top: 5px;
+    }
+</style>
+</head>
+<body>
+
+<h1>WMS Solution Design Document</h1>
+
+<div class="section">
+    <h2>1. Business Requirement</h2>
+
+    <p>
+        The warehouse management system (WMS) needs to support scenarios where a single
+        serialized SKU can have different <strong>Units Per Case (UPC)</strong> values
+        within the same pallet.
+    </p>
+
+    <p>
+        Currently, the <strong>PALLET_DTL</strong> table uses the following logical key:
+    </p>
+
+    <div class="box">
+        <strong>Primary Key:</strong> PALLET_ID + SKU
+    </div>
+
+    <p>
+        Since the SKU is serialized, multiple case configurations can exist for the same SKU
+        on a pallet. This creates a challenge because PALLET_DTL can store only one Units Per Case
+        value at the SKU level.
+    </p>
+</div>
+
+
+<div class="section">
+    <h2>2. Design Options Evaluated</h2>
+
+    <h3>Option 1 – Manage Variable Units Per Case at Serial Number Level</h3>
+
+    <p>
+        Continue using the existing PALLET_DTL structure without modifying its primary key.
+    </p>
+
+    <p>
+        In this approach:
+    </p>
+
+    <ul>
+        <li>PALLET_DTL remains keyed by <strong>PALLET_ID + SKU</strong>.</li>
+        <li>Units Per Case in PALLET_DTL represents the standard SKU-level value.</li>
+        <li>The actual quantity contained in each serialized case is maintained in the Case Serial Number inventory table.</li>
+        <li>The On-Hand Quantity maintained against each case serial number represents the actual Units Per Case for that specific case.</li>
+        <li>Operational processes derive the case quantity from the serial-level inventory record whenever required.</li>
+    </ul>
+
+    <div class="box">
+        Example:
+        <ul>
+            <li>SKU: SKU1001</li>
+            <li>PALLET_DTL Units Per Case = 24</li>
+            <li>Case Serial A → On-Hand Qty = 24</li>
+            <li>Case Serial B → On-Hand Qty = 12</li>
+            <li>Case Serial C → On-Hand Qty = 18</li>
+        </ul>
+
+        Although PALLET_DTL contains a standard value, the actual case quantity is obtained
+        from the corresponding serialized inventory record.
+    </div>
+
+
+    <h3>Option 2 – Introduce Case-Level LPN Hierarchy</h3>
+
+    <p>
+        Treat each physical case as an independent LPN.
+    </p>
+
+    <p>
+        In this approach:
+    </p>
+
+    <ul>
+        <li>Every case receives its own LPN.</li>
+        <li>A new "Master LPN" represents the physical pallet.</li>
+        <li>Case LPNs are mapped to the Master LPN.</li>
+        <li>The pallet becomes a parent-child LPN structure.</li>
+    </ul>
+
+    <p>
+        While this approach provides greater flexibility, it introduces significant system changes.
+    </p>
+
+    <table>
+        <tr>
+            <th>Process Area</th>
+            <th>Impact</th>
+        </tr>
+        <tr>
+            <td>Receiving</td>
+            <td>Additional LPN creation and association logic</td>
+        </tr>
+        <tr>
+            <td>Inventory Management</td>
+            <td>Master/Child LPN maintenance</td>
+        </tr>
+        <tr>
+            <td>Cycle Counting</td>
+            <td>Changes required to count and reconcile hierarchical LPNs</td>
+        </tr>
+        <tr>
+            <td>Picking</td>
+            <td>Updates needed to support child LPN selection</td>
+        </tr>
+        <tr>
+            <td>Replenishment</td>
+            <td>Enhanced handling for nested LPN structures</td>
+        </tr>
+        <tr>
+            <td>Inquiry Screens</td>
+            <td>UI enhancements required to display hierarchy</td>
+        </tr>
+    </table>
+</div>
+
+
+<div class="section">
+    <h2>3. Solution Evaluation</h2>
+
+    <table>
+        <tr>
+            <th>Criteria</th>
+            <th>Option 1</th>
+            <th>Option 2</th>
+        </tr>
+        <tr>
+            <td>Database Changes</td>
+            <td>Minimal</td>
+            <td>High</td>
+        </tr>
+        <tr>
+            <td>Impact on Existing Processes</td>
+            <td>Low</td>
+            <td>High</td>
+        </tr>
+        <tr>
+            <td>Cycle Count Changes</td>
+            <td>None / Minimal</td>
+            <td>Significant</td>
+        </tr>
+        <tr>
+            <td>Picking Changes</td>
+            <td>Minimal</td>
+            <td>Significant</td>
+        </tr>
+        <tr>
+            <td>Implementation Risk</td>
+            <td>Low</td>
+            <td>High</td>
+        </tr>
+        <tr>
+            <td>Time to Deliver</td>
+            <td>Short</td>
+            <td>Long</td>
+        </tr>
+    </table>
+</div>
+
+
+<div class="section">
+    <h2>4. Final Decision</h2>
+
+    <div class="approved">
+        <h3>Approved Solution: Option 1</h3>
+
+        <p>
+            The team agreed to proceed with Option 1, where PALLET_DTL continues
+            to maintain the SKU-level Units Per Case information and the actual
+            case quantity is managed in the serialized case inventory records.
+        </p>
+
+        <p>
+            The On-Hand Quantity stored against each case serial number will represent
+            the actual quantity contained within that case.
+        </p>
+
+        <p>
+            This approach satisfies the business requirement while avoiding major changes
+            to existing inventory, cycle count, picking, replenishment, and pallet management
+            processes.
+        </p>
+    </div>
+</div>
+
+
+<div class="section">
+    <h2>5. Benefits of the Selected Solution</h2>
+
+    <ul>
+        <li>Preserves the current PALLET_DTL data model.</li>
+        <li>Avoids introducing LPN hierarchy complexity.</li>
+        <li>Minimizes impact on existing warehouse transactions.</li>
+        <li>Reduces development and testing effort.</li>
+        <li>Supports varying case quantities for serialized SKUs.</li>
+        <li>Provides a lower-risk implementation path.</li>
+    </ul>
+</div>
+
+
+<div class="section">
+    <h2>6. Assumptions</h2>
+
+    <ul>
+        <li>Each case is uniquely identified through a case serial number.</li>
+        <li>Case serial inventory records can store the actual On-Hand Quantity.</li>
+        <li>Operational transactions requiring case quantity will reference the serial-level inventory data.</li>
+        <li>PALLET_DTL quantity remains aggregated at SKU level.</li>
+    </ul>
+</div>
+
+</body>
+</html>
