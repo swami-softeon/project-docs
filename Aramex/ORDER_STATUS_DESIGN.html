@@ -1,0 +1,1264 @@
+<title>Order Status Tracking — Design Reference</title>
+<style>
+  :root {
+    --paper:      #F4F6F7;
+    --paper-sunk: #EAEDF0;
+    --card:       #FFFFFF;
+    --ink:        #16222B;
+    --ink-soft:   #4A5C68;
+    --ink-faint:  #7A8994;
+    --rule:       #D5DCE1;
+    --rule-soft:  #E4E9EC;
+    --steel:      #1E4B6E;
+    --steel-soft: #E8EFF5;
+    --tier0:      #6B7A85;
+    --tier1:      #9A6510;
+    --tier2:      #2A6B48;
+    --sentinel:   #504FA0;
+    --tier0-bg:   #EDEFF1;
+    --tier1-bg:   #FBF0DC;
+    --tier2-bg:   #E2F0E8;
+    --sentinel-bg:#EAEAF7;
+
+    --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono:  ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", "Roboto Mono", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:      #101922;
+      --paper-sunk: #0A1119;
+      --card:       #17222C;
+      --ink:        #DCE5EB;
+      --ink-soft:   #9FB1BD;
+      --ink-faint:  #71838F;
+      --rule:       #2B3945;
+      --rule-soft:  #212D38;
+      --steel:      #86B8DD;
+      --steel-soft: #16303F;
+      --tier0:      #97A6B1;
+      --tier1:      #D9A44E;
+      --tier2:      #63B98C;
+      --sentinel:   #9A99E0;
+      --tier0-bg:   #222E39;
+      --tier1-bg:   #33290F;
+      --tier2-bg:   #16301F;
+      --sentinel-bg:#22224A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#101922; --paper-sunk:#0A1119; --card:#17222C;
+    --ink:#DCE5EB; --ink-soft:#9FB1BD; --ink-faint:#71838F;
+    --rule:#2B3945; --rule-soft:#212D38;
+    --steel:#86B8DD; --steel-soft:#16303F;
+    --tier0:#97A6B1; --tier1:#D9A44E; --tier2:#63B98C; --sentinel:#9A99E0;
+    --tier0-bg:#222E39; --tier1-bg:#33290F; --tier2-bg:#16301F; --sentinel-bg:#22224A;
+  }
+  :root[data-theme="light"] {
+    --paper:#F4F6F7; --paper-sunk:#EAEDF0; --card:#FFFFFF;
+    --ink:#16222B; --ink-soft:#4A5C68; --ink-faint:#7A8994;
+    --rule:#D5DCE1; --rule-soft:#E4E9EC;
+    --steel:#1E4B6E; --steel-soft:#E8EFF5;
+    --tier0:#6B7A85; --tier1:#9A6510; --tier2:#2A6B48; --sentinel:#504FA0;
+    --tier0-bg:#EDEFF1; --tier1-bg:#FBF0DC; --tier2-bg:#E2F0E8; --sentinel-bg:#EAEAF7;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 56px;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 18px 64px; }
+    .toc { position: static; margin-bottom: 40px; }
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    grid-column: 1 / -1;
+    padding: 64px 0 34px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 48px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--steel);
+    margin-bottom: 18px;
+  }
+  .masthead h1 {
+    font-family: var(--serif);
+    font-size: clamp(2.3rem, 5.2vw, 3.4rem);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -.015em;
+    text-wrap: balance;
+    margin-bottom: 18px;
+  }
+  .standfirst {
+    font-family: var(--serif);
+    font-size: 1.16rem;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    max-width: 60ch;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    margin-top: 28px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+  }
+  .meta-row b { color: var(--ink-soft); font-weight: 500; }
+
+  /* ---------- table of contents ---------- */
+  .toc { position: sticky; top: 28px; }
+  .toc h2 {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 12px;
+  }
+  .toc ol { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .toc a {
+    color: var(--ink-soft);
+    text-decoration: none;
+    font-size: 13.5px;
+    line-height: 1.35;
+    display: flex;
+    gap: 9px;
+  }
+  .toc a:hover { color: var(--steel); }
+  .toc a span { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); padding-top: 1px; }
+
+  /* ---------- sections ---------- */
+  section { margin-bottom: 68px; scroll-margin-top: 24px; }
+  section > h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    line-height: 1.2;
+    margin-bottom: 22px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+  section > h2 .num {
+    font-family: var(--mono);
+    font-size: .78rem;
+    color: var(--steel);
+    letter-spacing: .05em;
+    flex: none;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 1.02rem;
+    font-weight: 650;
+    letter-spacing: -.005em;
+    margin: 34px 0 12px;
+  }
+  h4 {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 26px 0 10px;
+  }
+  p { max-width: 74ch; margin-bottom: 14px; }
+  p + p { margin-top: -2px; }
+  ul, ol.prose { max-width: 74ch; margin: 0 0 16px 20px; }
+  li { margin-bottom: 7px; }
+  a { color: var(--steel); }
+  strong { font-weight: 650; }
+  code {
+    font-family: var(--mono);
+    font-size: .855em;
+    background: var(--paper-sunk);
+    border: 1px solid var(--rule-soft);
+    border-radius: 3px;
+    padding: .08em .34em;
+    white-space: nowrap;
+  }
+  .lede {
+    font-family: var(--serif);
+    font-size: 1.08rem;
+    color: var(--ink-soft);
+    max-width: 68ch;
+    margin-bottom: 22px;
+  }
+
+  /* ---------- tables ---------- */
+  .scroller { overflow-x: auto; margin-bottom: 20px; border: 1px solid var(--rule); border-radius: 5px; background: var(--card); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 500;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper-sunk);
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+    line-height: 1.48;
+  }
+  tr:last-child td { border-bottom: none; }
+  td.id, td.num { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  td.wrap { min-width: 260px; }
+  .obj { font-family: var(--mono); font-size: 12px; color: var(--steel); white-space: nowrap; }
+
+  /* ---------- tier chips ---------- */
+  .tier {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
+    padding: 1px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .t-1  { color: var(--sentinel); background: var(--sentinel-bg); }
+  .t0   { color: var(--tier0);    background: var(--tier0-bg); }
+  .t1   { color: var(--tier1);    background: var(--tier1-bg); }
+  .t2   { color: var(--tier2);    background: var(--tier2-bg); }
+
+  /* ---------- callouts ---------- */
+  .note {
+    border-left: 3px solid var(--steel);
+    background: var(--steel-soft);
+    padding: 14px 18px;
+    margin: 22px 0;
+    border-radius: 0 4px 4px 0;
+    max-width: 78ch;
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--steel);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .note.warn { border-left-color: var(--tier1); background: var(--tier1-bg); }
+  .note.warn .tag { color: var(--tier1); }
+
+  /* ---------- figures ---------- */
+  figure { margin: 24px 0 26px; }
+  .figbox { overflow-x: auto; border: 1px solid var(--rule); border-radius: 5px; background: var(--card); padding: 20px 18px; }
+  figure svg { display: block; min-width: 700px; width: 100%; height: auto; }
+  figcaption {
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    margin-top: 10px;
+    max-width: 74ch;
+  }
+  .s-box   { fill: var(--paper-sunk); stroke: var(--rule); stroke-width: 1; }
+  .s-box-a { fill: var(--steel-soft); stroke: var(--steel); stroke-width: 1; }
+  .s-t     { fill: var(--ink); font-family: var(--mono); font-size: 12px; }
+  .s-t-sm  { fill: var(--ink-faint); font-family: var(--mono); font-size: 10.5px; }
+  .s-t-b   { fill: var(--ink); font-family: var(--mono); font-size: 12px; font-weight: 600; }
+  .s-line  { stroke: var(--ink-faint); stroke-width: 1.4; fill: none; }
+  .s-dash  { stroke: var(--ink-faint); stroke-width: 1.4; fill: none; stroke-dasharray: 4 3; }
+  .s-badge { fill: var(--card); stroke: var(--steel); stroke-width: 1.2; }
+  .s-badge-t { fill: var(--steel); font-family: var(--mono); font-size: 10.5px; font-weight: 600; text-anchor: middle; }
+  .s-head  { fill: var(--ink-faint); }
+
+  .legend { list-style: none; margin: 14px 0 0; display: flex; flex-direction: column; gap: 7px; }
+  .legend li { display: flex; gap: 11px; font-size: 13px; line-height: 1.45; margin: 0; }
+  .muted { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+  .legend .k {
+    font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--steel);
+    flex: none; width: 18px; padding-top: 2px;
+  }
+
+  /* ---------- lifecycle ---------- */
+  .stage { border-left: 2px solid var(--rule); padding: 0 0 4px 22px; margin-left: 4px; position: relative; }
+  .stage + .stage { margin-top: 26px; }
+  .stage::before {
+    content: ""; position: absolute; left: -6px; top: 7px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--card); border: 2px solid var(--steel);
+  }
+  .stage h3 { margin: 0 0 8px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .stage h3 .sub { font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--ink-faint); }
+  .stage p { margin-bottom: 8px; font-size: 14.5px; }
+  .stage ul { font-size: 14.5px; margin-bottom: 8px; }
+
+  footer {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--rule);
+    padding-top: 22px;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    max-width: 74ch;
+  }
+  :focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; border-radius: 2px; }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <div class="eyebrow">Aramex WMS · Oracle Database</div>
+    <h1>Order Status Tracking</h1>
+    <p class="standfirst">
+      How the order and order-line status columns are maintained — which triggers fire,
+      what each one computes, and how it all rolls up into a single lifecycle status.
+    </p>
+    <div class="meta-row">
+      <div><b>Scope</b> order_header · order_detail</div>
+      <div><b>Objects</b> 4 packages · 13 triggers</div>
+      <div><b>Source</b> dbscripts/</div>
+      <div><b>Warehouse</b> EGY</div>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#s1"><span>1</span>What this does</a></li>
+      <li><a href="#s2"><span>2</span>The columns</a></li>
+      <li><a href="#s3"><span>3</span>Trigger inventory</a></li>
+      <li><a href="#s4"><span>4</span>Quantities</a></li>
+      <li><a href="#s5"><span>5</span>Component statuses</a></li>
+      <li><a href="#s6"><span>6</span>Derived status</a></li>
+      <li><a href="#s7"><span>7</span>Lifecycle walkthrough</a></li>
+      <li><a href="#s8"><span>8</span>Backfill &amp; integrity</a></li>
+      <li><a href="#s9"><span>9</span>Design constraints</a></li>
+      <li><a href="#s10"><span>10</span>Install order</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============================================ 1 -->
+    <section id="s1">
+      <h2><span class="num">01</span>What this does</h2>
+
+      <p class="lede">
+        An order's real progress lives scattered across half a dozen tables — pick pre-plans,
+        cartons, pre-cartons, detail lines. Answering "where is this order?" used to mean
+        joining all of them. This system keeps the answer denormalized on the order itself,
+        maintained in real time by triggers.
+      </p>
+
+      <p>
+        Two layers of columns were added. On <code>order_header</code>, a set of quantity and
+        status columns describing the whole order. On <code>order_detail</code>, the same idea
+        per order line — because a single line can be fully picked and packed while the rest of
+        the order lags behind.
+      </p>
+
+      <p>
+        Each layer ends in one composite column — <code>ord_derived_status</code> on the header
+        and <code>ord_line_derived_status</code> on the line — holding a single code from
+        <span class="tier t0">100</span>–<span class="tier t0">370</span> that names the
+        lifecycle state in plain language ("Part Allocated / Part Picked", "Loaded",
+        "Cancelled Externally"). That code is what screens and reports read.
+      </p>
+
+      <h3>The three things that happen on every change</h3>
+      <ol class="prose">
+        <li><strong>A quantity moves.</strong> A source table changes; a trigger applies the delta to the order line, and a second trigger rolls the line delta up to the header.</li>
+        <li><strong>Component statuses recompute.</strong> Each quantity is compared against its denominator to produce a 0/1/2 tier — not started, partial, complete.</li>
+        <li><strong>The derived status recomputes.</strong> All component statuses are fed into one shared function that returns the composite code.</li>
+      </ol>
+
+      <div class="note">
+        <span class="tag">Reading the tiers</span>
+        <p>
+          Almost every status column uses the same scale:
+          <span class="tier t0">0</span> nothing yet ·
+          <span class="tier t1">1</span> partial ·
+          <span class="tier t2">2</span> complete.
+          Allocation adds a fourth value, <span class="tier t-1">−1</span>, meaning
+          <em>no allocation has even been attempted yet</em> — which is genuinely different
+          from "we tried and got nothing".
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 2 -->
+    <section id="s2">
+      <h2><span class="num">02</span>The columns</h2>
+
+      <p>
+        Both tables carry the same shape. The important difference is the <strong>denominator</strong>
+        each level compares against: the header uses <code>std_sku_qty</code>, the line uses
+        <code>ord_qty</code>.
+      </p>
+
+      <h4>order_header</h4>
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Column</th><th>Type</th><th>Default</th><th>Holds</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="id">allocated_qty</td><td class="id">NUMBER(13,3)</td><td class="num">0</td><td>Sum of the lines' allocated quantity</td></tr>
+            <tr><td class="id">picked_qty</td><td class="id">NUMBER(13,3)</td><td class="num">0</td><td>Sum of the lines' <code>ASSIGNED_qty</code></td></tr>
+            <tr><td class="id">shipped_qty</td><td class="id">NUMBER(13,3)</td><td class="num">0</td><td>Sum of the lines' <code>shipped_qty</code></td></tr>
+            <tr><td class="id">ord_alloc_status</td><td class="id">NUMBER(2,0)</td><td class="num">−1</td><td><span class="tier t-1">−1</span> not attempted <span class="tier t0">0</span> attempted, none <span class="tier t1">1</span> partial <span class="tier t2">2</span> full</td></tr>
+            <tr><td class="id">ord_pick_status</td><td class="id">NUMBER(1,0)</td><td class="num">0</td><td>Picking progress</td></tr>
+            <tr><td class="id">ord_ship_status</td><td class="id">NUMBER(1,0)</td><td class="num">0</td><td>Shipping progress</td></tr>
+            <tr><td class="id">ord_pack_status</td><td class="id">NUMBER(1,0)</td><td class="num">0</td><td>Packing progress</td></tr>
+            <tr><td class="id">ord_load_status</td><td class="id">NUMBER(1,0)</td><td class="num">0</td><td>Loading progress</td></tr>
+            <tr><td class="id">ord_release_status</td><td class="id">NUMBER(1,0)</td><td class="num">0</td><td>Pre-carton release progress</td></tr>
+            <tr><td class="id">ord_genl_status</td><td class="id">NUMBER(2,0)</td><td class="num">11</td><td>11 internal · 12 external · 5 empty · 1 API cancel · 2 manual cancel</td></tr>
+            <tr><td class="id">ord_derived_status</td><td class="id">NUMBER(4,0)</td><td class="num">0</td><td>Composite lifecycle code, 100–370</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>order_detail &nbsp;— key: company_no + ord_no + ord_line_no</h4>
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Column</th><th>Type</th><th>Default</th><th>Holds</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="id">allocated_qty</td><td class="id">NUMBER(13,3)</td><td class="num">0</td><td>Allocated to this line only</td></tr>
+            <tr><td class="id">ord_line_alloc_status</td><td class="id">NUMBER(2,0)</td><td class="num">−1</td><td>Same four values as the header</td></tr>
+            <tr><td class="id">ord_line_pick_status</td><td class="id">NUMBER(1,0)</td><td class="num">0</td><td><code>ASSIGNED_qty</code> vs <code>ord_qty</code></td></tr>
+            <tr><td class="id">ord_line_ship_status</td><td class="id">NUMBER(1,0)</td><td class="num">0</td><td>From <code>shipped_qty</code></td></tr>
+            <tr><td class="id">ord_line_pack_status</td><td class="id">NUMBER(1,0)</td><td class="num">0</td><td>Across the PCNs that contain <em>this line</em></td></tr>
+            <tr><td class="id">ord_line_load_status</td><td class="id">NUMBER(1,0)</td><td class="num">0</td><td>Across the PCNs that contain <em>this line</em></td></tr>
+            <tr><td class="id">ord_line_release_status</td><td class="id">NUMBER(1,0)</td><td class="num">0</td><td>Across the PPCNs that contain <em>this line</em></td></tr>
+            <tr><td class="id">ord_line_derived_status</td><td class="id">NUMBER(4,0)</td><td class="num">0</td><td>Composite code, same 100–370 set</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        <code>ord_qty</code>, <code>ASSIGNED_qty</code> and <code>shipped_qty</code> already existed
+        on <code>order_detail</code> and are written by the application — only
+        <code>allocated_qty</code> had to be added.
+      </p>
+
+      <div class="note">
+        <span class="tag">No sub-status on the line</span>
+        <p>
+          There is deliberately no line-level equivalent of <code>ord_sub_status</code> or
+          <code>ord_genl_status</code>. A line inherits those from its parent order. That is what
+          lets one shared function compute both levels, and it means order-wide states
+          ("Order Grouped", "Cancelled Internally") automatically read the same on every line.
+        </p>
+      </div>
+
+      <h3>The join that ties a line to everything else</h3>
+      <p>
+        Cartons and pre-cartons don't reference order lines directly. They reach them through
+        <code>work_group2_dtl</code>, always on the same three columns:
+      </p>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>From</th><th>Join on</th><th>Gives</th></tr></thead>
+          <tbody>
+            <tr><td class="id">ppcn_pick_pre_plan</td><td class="id">whse_id + work_grp2 + work_line_no</td><td class="id">company_no + ord_ref_no + ord_ref_line_no</td></tr>
+            <tr><td class="id">pcn_dtl</td><td class="id">whse_id + work_grp2 + work_line_no</td><td class="id">company_no + ord_ref_no + ord_ref_line_no</td></tr>
+            <tr><td class="id">ppcn_dtl</td><td class="id">whse_id + work_grp2 + work_line_no</td><td class="id">company_no + ord_ref_no + ord_ref_line_no</td></tr>
+            <tr><td class="id">batch_ppcn_dtl</td><td class="id">whse_id + work_grp2 + work_line_no</td><td class="id">company_no + ord_ref_no + ord_ref_line_no</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code>work_group2_dtl.ord_ref_no</code> is the order and <code>ord_ref_line_no</code> is the
+        order line. Cartons and pre-cartons also carry <code>ord_group_no</code>, which matches
+        <code>order_header.ord_no</code> directly — that's the shortcut used when only the order is needed.
+      </p>
+
+      <div class="note warn">
+        <span class="tag">Column naming trap</span>
+        <p>
+          <code>ppcn_hdr</code> / <code>ppcn_dtl</code> key on <code>ppcn_no</code> and gate on
+          <code>pcn_authorize_qty</code>. Their batch counterparts <code>batch_ppcn_hdr</code> /
+          <code>batch_ppcn_dtl</code> key on <strong><code>ppcn_id</code></strong> and gate on
+          <strong><code>qty</code></strong>. Same structure, different column names.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 3 -->
+    <section id="s3">
+      <h2><span class="num">03</span>Trigger inventory</h2>
+
+      <p class="lede">
+        Thirteen triggers across six tables. Read the "Fires when" column to know what wakes each
+        one; read "Writes" to know what it is responsible for.
+      </p>
+
+      <h4>On order_header — self-maintaining</h4>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Trigger</th><th>Timing</th><th>Fires when</th><th class="wrap">Writes</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="obj">T_armx_ORDER_HEADER_INS_GEN_STATUS</td>
+              <td>BEFORE INSERT</td>
+              <td>Any new order</td>
+              <td class="wrap"><code>ord_genl_status</code> — 12 when <code>modify_user = 'API'</code>, otherwise 11</td>
+            </tr>
+            <tr>
+              <td class="obj">T_armx_ORDER_HEADER_SUB_STATUS_UPD</td>
+              <td>BEFORE UPDATE</td>
+              <td><code>ord_sub_status</code> changes</td>
+              <td class="wrap">pick, ship, general, pack and load status, then the derived status inline</td>
+            </tr>
+            <tr>
+              <td class="obj">T_armx_ORDER_HEADER_DERIVED_STATUS_UPD</td>
+              <td>BEFORE UPDATE</td>
+              <td>Any component status or <code>stop1_delv_status_cd</code> changes</td>
+              <td class="wrap"><code>ord_derived_status</code> and <code>modify_tstamp</code></td>
+            </tr>
+            <tr>
+              <td class="obj">T_armx_ORDER_HEADER_STD_SKU_QTY_UPD</td>
+              <td>BEFORE UPDATE</td>
+              <td><code>std_sku_qty</code> changes</td>
+              <td class="wrap">Pick and alloc status against the new denominator, then derived status</td>
+            </tr>
+            <tr>
+              <td class="obj">T_armx_ORDER_HEADER_LINE_CASCADE_UPD</td>
+              <td>COMPOUND</td>
+              <td><code>ord_sub_status</code>, <code>ord_genl_status</code> or <code>stop1_delv_status_cd</code> changes</td>
+              <td class="wrap">Every line's pick, ship, pack, load and derived status</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>On order_detail</h4>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Trigger</th><th>Timing</th><th>Fires when</th><th class="wrap">Writes</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="obj">T_armx_ORDER_DETAIL_LINE_STATUS_UPD</td>
+              <td>BEFORE UPDATE</td>
+              <td>Any line quantity, or a line pack/load/release/alloc status, changes</td>
+              <td class="wrap">Line pick, ship and alloc status, then <code>ord_line_derived_status</code></td>
+            </tr>
+            <tr>
+              <td class="obj">T_armx_ORDER_DETAIL_PICK_QTY_UPDATE</td>
+              <td>AFTER UPDATE</td>
+              <td><code>ASSIGNED_qty</code> changes</td>
+              <td class="wrap">Header <code>picked_qty</code> + <code>ord_pick_status</code></td>
+            </tr>
+            <tr>
+              <td class="obj">T_armx_ORDER_DETAIL_SHIP_QTY_UPDATE</td>
+              <td>AFTER UPDATE</td>
+              <td><code>shipped_qty</code> changes</td>
+              <td class="wrap">Header <code>shipped_qty</code> + <code>ord_ship_status</code></td>
+            </tr>
+            <tr>
+              <td class="obj">T_armx_ORDER_DETAIL_ALLOC_QTY_UPDATE</td>
+              <td>AFTER UPDATE</td>
+              <td><code>allocated_qty</code> changes</td>
+              <td class="wrap">Header <code>allocated_qty</code> + <code>ord_alloc_status</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>On the source tables</h4>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Trigger</th><th>Timing</th><th>Fires when</th><th class="wrap">Writes</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="obj">T_armx_PPCN_PICK_PRE_PLAN_ALLOC_UPD</td>
+              <td>AFTER INS/UPD/DEL</td>
+              <td>Any <code>ppcn_pick_pre_plan</code> row changes</td>
+              <td class="wrap">The matching line's <code>allocated_qty</code></td>
+            </tr>
+            <tr>
+              <td class="obj">T_armx_PCN_HDR_PACK_LOAD_STATUS_UPD</td>
+              <td>COMPOUND</td>
+              <td>A carton is inserted, deleted, or its <code>status</code> changes</td>
+              <td class="wrap">Header <em>and</em> line pack/load status, via <code>p_armx_order_pack_load_rollup</code></td>
+            </tr>
+            <tr>
+              <td class="obj">T_armx_PPCN_HDR_RELEASE_STATUS_UPD</td>
+              <td>COMPOUND</td>
+              <td>A pre-carton is inserted, deleted, or its <code>status</code> changes</td>
+              <td class="wrap">Header <em>and</em> line release/alloc status, via <code>p_armx_order_release_rollup</code></td>
+            </tr>
+            <tr>
+              <td class="obj">T_armx_BATCH_PPCN_HDR_RELEASE_STATUS_UPD</td>
+              <td>COMPOUND</td>
+              <td>Same, for batch pre-cartons</td>
+              <td class="wrap">Same package, same targets</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Supporting packages</h4>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Package</th><th class="wrap">Responsibility</th></tr></thead>
+          <tbody>
+            <tr><td class="obj">p_armx_order_derived_status</td><td class="wrap">One function, <code>calc_derived_status</code>. Takes nine status inputs, returns the composite code. Pure — reads no tables. Used by both levels.</td></tr>
+            <tr><td class="obj">p_armx_order_release_rollup</td><td class="wrap">Recomputes release status and the allocation-attempt flip for an order and all its lines.</td></tr>
+            <tr><td class="obj">p_armx_order_pack_load_rollup</td><td class="wrap">Recomputes pack and load status for an order and all its lines.</td></tr>
+            <tr><td class="obj">p_armx_order_status_integrity</td><td class="wrap">Backfill and repair — <code>recompute_all</code>, <code>recompute_order</code>, <code>recompute_line</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================ 4 -->
+    <section id="s4">
+      <h2><span class="num">04</span>Quantities</h2>
+
+      <p class="lede">
+        Three quantities are tracked, and all three follow the same two-hop path: a source writes
+        the <em>line</em>, and the line rolls up to the <em>header</em>. The header is always the
+        sum of its lines — never computed independently.
+      </p>
+
+      <figure>
+        <div class="figbox">
+          <svg viewBox="0 0 880 300" role="img" aria-label="Quantity flow from source tables through order_detail to order_header">
+            <defs>
+              <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" class="s-head"></path>
+              </marker>
+            </defs>
+
+            <text x="8" y="14" class="s-t-sm">SOURCE</text>
+            <text x="324" y="14" class="s-t-sm">ORDER LINE</text>
+            <text x="640" y="14" class="s-t-sm">ORDER HEADER</text>
+
+            <!-- lane 1 -->
+            <rect x="8" y="27" width="232" height="56" rx="4" class="s-box"></rect>
+            <text x="22" y="49" class="s-t">ppcn_pick_pre_plan</text>
+            <text x="22" y="68" class="s-t-sm">alloc_qty</text>
+            <rect x="324" y="27" width="232" height="56" rx="4" class="s-box-a"></rect>
+            <text x="338" y="49" class="s-t">order_detail</text>
+            <text x="338" y="68" class="s-t-b">allocated_qty</text>
+            <rect x="640" y="27" width="232" height="56" rx="4" class="s-box-a"></rect>
+            <text x="654" y="49" class="s-t">order_header</text>
+            <text x="654" y="68" class="s-t-b">allocated_qty</text>
+            <path d="M 244 55 L 314 55" class="s-line" marker-end="url(#ar)"></path>
+            <circle cx="279" cy="38" r="10" class="s-badge"></circle>
+            <text x="279" y="42" class="s-badge-t">1</text>
+            <path d="M 560 55 L 630 55" class="s-line" marker-end="url(#ar)"></path>
+            <circle cx="595" cy="38" r="10" class="s-badge"></circle>
+            <text x="595" y="42" class="s-badge-t">2</text>
+
+            <!-- lane 2 -->
+            <rect x="8" y="117" width="232" height="56" rx="4" class="s-box"></rect>
+            <text x="22" y="139" class="s-t">Picking application</text>
+            <text x="22" y="158" class="s-t-sm">writes the line directly</text>
+            <rect x="324" y="117" width="232" height="56" rx="4" class="s-box-a"></rect>
+            <text x="338" y="139" class="s-t">order_detail</text>
+            <text x="338" y="158" class="s-t-b">ASSIGNED_qty</text>
+            <rect x="640" y="117" width="232" height="56" rx="4" class="s-box-a"></rect>
+            <text x="654" y="139" class="s-t">order_header</text>
+            <text x="654" y="158" class="s-t-b">picked_qty</text>
+            <path d="M 244 145 L 314 145" class="s-dash" marker-end="url(#ar)"></path>
+            <path d="M 560 145 L 630 145" class="s-line" marker-end="url(#ar)"></path>
+            <circle cx="595" cy="128" r="10" class="s-badge"></circle>
+            <text x="595" y="132" class="s-badge-t">3</text>
+
+            <!-- lane 3 -->
+            <rect x="8" y="207" width="232" height="56" rx="4" class="s-box"></rect>
+            <text x="22" y="229" class="s-t">Shipping application</text>
+            <text x="22" y="248" class="s-t-sm">writes the line directly</text>
+            <rect x="324" y="207" width="232" height="56" rx="4" class="s-box-a"></rect>
+            <text x="338" y="229" class="s-t">order_detail</text>
+            <text x="338" y="248" class="s-t-b">shipped_qty</text>
+            <rect x="640" y="207" width="232" height="56" rx="4" class="s-box-a"></rect>
+            <text x="654" y="229" class="s-t">order_header</text>
+            <text x="654" y="248" class="s-t-b">shipped_qty</text>
+            <path d="M 244 235 L 314 235" class="s-dash" marker-end="url(#ar)"></path>
+            <path d="M 560 235 L 630 235" class="s-line" marker-end="url(#ar)"></path>
+            <circle cx="595" cy="218" r="10" class="s-badge"></circle>
+            <text x="595" y="222" class="s-badge-t">4</text>
+
+            <text x="248" y="286" class="s-t-sm">dashed = written by the application, not a trigger</text>
+          </svg>
+        </div>
+        <ul class="legend">
+          <li><span class="k">1</span><span><span class="obj">T_armx_PPCN_PICK_PRE_PLAN_ALLOC_UPD</span> — resolves the order line through <code>work_group2_dtl</code>, then applies the change in <code>alloc_qty</code> as a delta.</span></li>
+          <li><span class="k">2</span><span><span class="obj">T_armx_ORDER_DETAIL_ALLOC_QTY_UPDATE</span></span></li>
+          <li><span class="k">3</span><span><span class="obj">T_armx_ORDER_DETAIL_PICK_QTY_UPDATE</span></span></li>
+          <li><span class="k">4</span><span><span class="obj">T_armx_ORDER_DETAIL_SHIP_QTY_UPDATE</span></span></li>
+        </ul>
+        <figcaption>
+          Every rollup is a <strong>delta</strong>, not a re-sum: the trigger adds
+          (new − old) to the running total, so cost does not grow with the number of lines.
+          Totals are floored at zero.
+        </figcaption>
+      </figure>
+
+      <div class="note">
+        <span class="tag">Why line-first</span>
+        <p>
+          Allocation originally wrote the header directly. Routing it through the line means the
+          header is now provably the sum of its lines for all three quantities, the
+          <code>work_group2_dtl</code> join lives in exactly one place, and the integrity package can
+          cheaply check header totals against line totals.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 5 -->
+    <section id="s5">
+      <h2><span class="num">05</span>Component statuses</h2>
+
+      <p class="lede">
+        Six component statuses feed the derived status. Three come from quantities, three from
+        the state of cartons and pre-cartons. Each is computed at both levels — the difference is
+        always the denominator and the scope.
+      </p>
+
+      <h3>Allocation</h3>
+      <p>
+        The only status with four values. <span class="tier t-1">−1</span> is the starting point
+        and survives until the warehouse has actually finished trying to allocate — signalled by
+        every active pre-carton for the order reaching <code>status ≥ 12</code>. At that moment the
+        rollup package flips <span class="tier t-1">−1</span> to <span class="tier t0">0</span>,
+        which is how "Did Not Allocate" becomes distinguishable from "Awaiting Allocation".
+      </p>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Value</th><th>Meaning</th><th>Condition</th></tr></thead>
+          <tbody>
+            <tr><td><span class="tier t-1">−1</span></td><td>No attempt yet</td><td>No active pre-cartons, or the lowest pre-carton status is still below 12</td></tr>
+            <tr><td><span class="tier t0">0</span></td><td>Attempted, nothing allocated</td><td>Attempt complete and allocated quantity is zero (or the denominator is zero)</td></tr>
+            <tr><td><span class="tier t1">1</span></td><td>Partially allocated</td><td>Allocated is above zero but below the denominator</td></tr>
+            <tr><td><span class="tier t2">2</span></td><td>Fully allocated</td><td>Allocated reaches the denominator</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Picking</h3>
+      <p>
+        <span class="tier t0">0</span> when nothing is picked, <span class="tier t1">1</span> while
+        picked is below the denominator, <span class="tier t2">2</span> when it reaches it. An
+        <code>ord_sub_status</code> of 70 forces <span class="tier t2">2</span> outright — the
+        warehouse declaring the pick finished overrides the arithmetic.
+      </p>
+
+      <h3>Shipping</h3>
+      <p>
+        Deliberately coarser: any shipped quantity at all is <span class="tier t1">1</span>. Only
+        <code>ord_sub_status = 80</code> produces <span class="tier t2">2</span>. Shipping is
+        confirmed by the shipping process, not inferred from quantities.
+      </p>
+
+      <h3>Packing and loading</h3>
+      <p>
+        Both are driven by <code>pcn_hdr.status</code>, which is a <strong>ladder</strong>:
+        <code>≥ 50</code> means packed, <code>≥ 60</code> means loaded — so a carton at 60 is also
+        packed. <code>status = 0</code> means cancelled and is excluded from every aggregate.
+      </p>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Level</th><th>Rule</th><th>Reaches 2 when</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>Order</strong></td>
+              <td><span class="tier t1">1</span> as soon as <em>any</em> active carton of the order reaches the step</td>
+              <td>Only from <code>ord_sub_status</code> ≥ 75 (pack) or = 78 (load)</td>
+            </tr>
+            <tr>
+              <td><strong>Line</strong></td>
+              <td><span class="tier t2">2</span> when <em>all</em> active cartons containing that line have reached the step; <span class="tier t1">1</span> when only some have</td>
+              <td>All of the line's own cartons — regardless of the order's other cartons</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        This is the point of tracking lines at all. One line's cartons can all be loaded while
+        another line of the same order is still being packed, and each line now reports its own truth.
+        A line with no cartons is never promoted — cartons are created at pick time, so no carton
+        means the line cannot have been packed or loaded.
+      </p>
+
+      <h3>Release</h3>
+      <p>
+        Computed from pre-cartons — <code>ppcn_hdr</code> and <code>batch_ppcn_hdr</code> combined,
+        counting only rows with <code>status ≠ 0</code> that have at least one authorized detail line.
+        The threshold is <code>status ≥ 18</code>.
+      </p>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Result</th><th>Condition</th></tr></thead>
+          <tbody>
+            <tr><td><span class="tier t0">0</span></td><td>No active pre-cartons in scope</td></tr>
+            <tr><td><span class="tier t1">1</span></td><td>The highest status has reached 18, but the lowest has not</td></tr>
+            <tr><td><span class="tier t2">2</span></td><td>Every active pre-carton has reached 18</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        At order level the scope is every pre-carton of the order. At line level it is only the
+        pre-cartons whose detail rows map to that line. One override applies at both levels: if the
+        allocation status is <span class="tier t0">0</span> — attempted and nothing allocated —
+        release is forced back to <span class="tier t0">0</span>, because nothing can be released
+        when nothing was allocated.
+      </p>
+
+      <h3>General status</h3>
+      <p>
+        Order-level only, and about provenance and cancellation rather than progress. Set to 12 on
+        insert when the creating user is <code>API</code>, otherwise 11. When
+        <code>ord_sub_status</code> later moves to 0 it becomes 1 (cancelled by API) or 2 (cancelled
+        internally); <code>ord_sub_status = 5</code> marks an empty order as 5.
+      </p>
+    </section>
+
+    <!-- ============================================ 6 -->
+    <section id="s6">
+      <h2><span class="num">06</span>Derived status</h2>
+
+      <p class="lede">
+        One function, <code>calc_derived_status</code>, turns nine inputs into one code. It reads no
+        tables, so both the header and the line call the same code path — the line simply passes its
+        own component statuses alongside the parent order's sub, general and delivery status.
+      </p>
+
+      <figure>
+        <div class="figbox">
+          <svg viewBox="0 0 880 260" role="img" aria-label="Both levels feed the same calc_derived_status function">
+            <defs>
+              <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" class="s-head"></path>
+              </marker>
+            </defs>
+            <rect x="8" y="26" width="236" height="88" rx="4" class="s-box"></rect>
+            <text x="22" y="48" class="s-t-b">ORDER inputs</text>
+            <text x="22" y="68" class="s-t-sm">sub · general · delivery code</text>
+            <text x="22" y="85" class="s-t-sm">alloc · release · pick</text>
+            <text x="22" y="102" class="s-t-sm">pack · load · ship</text>
+
+            <rect x="8" y="146" width="236" height="88" rx="4" class="s-box"></rect>
+            <text x="22" y="168" class="s-t-b">LINE inputs</text>
+            <text x="22" y="188" class="s-t-sm">sub · general · delivery code</text>
+            <text x="22" y="205" class="s-t-sm">line alloc · release · pick</text>
+            <text x="22" y="222" class="s-t-sm">line pack · load · ship</text>
+
+            <rect x="330" y="86" width="220" height="88" rx="4" class="s-box-a"></rect>
+            <text x="344" y="122" class="s-t-b">calc_derived_status</text>
+            <text x="344" y="143" class="s-t-sm">first matching rule wins</text>
+
+            <rect x="636" y="46" width="236" height="52" rx="4" class="s-box-a"></rect>
+            <text x="650" y="68" class="s-t">order_header</text>
+            <text x="650" y="86" class="s-t-b">ord_derived_status</text>
+
+            <rect x="636" y="162" width="236" height="52" rx="4" class="s-box-a"></rect>
+            <text x="650" y="184" class="s-t">order_detail</text>
+            <text x="650" y="202" class="s-t-b">ord_line_derived_status</text>
+
+            <path d="M 248 70 L 290 70 L 290 118 L 320 118" class="s-line" marker-end="url(#ar2)"></path>
+            <path d="M 248 190 L 290 190 L 290 142 L 320 142" class="s-line" marker-end="url(#ar2)"></path>
+            <path d="M 554 118 L 590 118 L 590 72 L 626 72" class="s-line" marker-end="url(#ar2)"></path>
+            <path d="M 554 142 L 590 142 L 590 188 L 626 188" class="s-line" marker-end="url(#ar2)"></path>
+
+            <path d="M 126 122 L 126 142" class="s-dash" marker-end="url(#ar2)"></path>
+            <text x="140" y="138" class="s-t-sm">sub · general · delivery are inherited</text>
+          </svg>
+        </div>
+        <figcaption>
+          Because the order-level inputs are shared, codes that depend only on them —
+          100 through 140, plus 360 and 370 — always read identically on the order and on every
+          one of its lines.
+        </figcaption>
+      </figure>
+
+      <h3>Evaluation order matters</h3>
+      <p>
+        The function is a single <code>CASE</code>: rules are tested top to bottom and the
+        <strong>first match wins</strong>. Cancellation and the terminal sub-statuses are checked
+        before anything else, so they cannot be overridden by stale component values.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>#</th><th>Tested</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td>Sub-status 0 — cancelled</td><td class="id">360 if general = 1, else 370</td></tr>
+            <tr><td class="num">2</td><td>Sub-status 75</td><td class="id">280 &nbsp;Pack Complete</td></tr>
+            <tr><td class="num">3</td><td>Sub-status 78</td><td class="id">300 &nbsp;Loaded</td></tr>
+            <tr><td class="num">4</td><td>Sub-status 80, by delivery code</td><td class="id">330 / 340 / 350, or 320 when blank</td></tr>
+            <tr><td class="num">5</td><td>Sub-status 5, 10 or 20, by general status</td><td class="id">100 / 110 / 120</td></tr>
+            <tr><td class="num">6</td><td>Sub-status 40 · 50</td><td class="id">130 · 140</td></tr>
+            <tr><td class="num">7</td><td>Sub-status 60 — the fulfilment block below</td><td class="id">145 – 290</td></tr>
+            <tr><td class="num">8</td><td>Sub-status 70 with pack, load and ship all zero</td><td class="id">260 &nbsp;Picked Complete</td></tr>
+            <tr><td class="num">9</td><td>Sub-status 60/70/75/78 with ship = 1</td><td class="id">310 &nbsp;Part Shipped</td></tr>
+            <tr><td class="num">10</td><td>Fallback on sub-status alone</td><td class="id">80→320 · 78→300 · 75→280 · 70→260, otherwise <strong>null</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">Null means "leave it alone"</span>
+        <p>
+          When no rule matches, the function returns null and every caller skips the write — the
+          existing derived status and timestamp are preserved. An unrecognised combination never
+          blanks out a status that was previously correct.
+        </p>
+      </div>
+
+      <h3>Inside sub-status 60</h3>
+      <p>
+        This is where an order spends most of its life, and where the component statuses actually
+        discriminate. Rules are listed in evaluation order; blank cells mean the rule does not test
+        that input.
+      </p>
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Alloc</th><th>Release</th><th>Pick</th><th>Pack</th><th>Load</th><th>Ship</th><th>Code</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="tier t-1">−1</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td class="id">145</td><td>Awaiting Allocation</td></tr>
+            <tr><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td class="id">150</td><td>Did Not Allocate</td></tr>
+            <tr><td><span class="tier t2">2</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td class="id">190</td><td>Allocated</td></tr>
+            <tr><td><span class="tier t1">1</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td class="id">160</td><td>Part Allocated</td></tr>
+            <tr><td>any</td><td><span class="tier t1">1</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td class="id">200</td><td>Part Released</td></tr>
+            <tr><td>any</td><td><span class="tier t2">2</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td class="id">230</td><td>Released</td></tr>
+            <tr><td>any</td><td><span class="tier t1">1</span></td><td><span class="tier t1">1</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td class="id">210</td><td>Part Released / Part Picked</td></tr>
+            <tr><td>any</td><td><span class="tier t1">1</span></td><td>any</td><td></td><td>any</td><td><span class="tier t1">1</span></td><td class="id">220</td><td>Part Released / Part Shipped</td></tr>
+            <tr><td><span class="tier t1">1</span></td><td>any</td><td><span class="tier t1">1</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td class="id">170</td><td>Part Allocated / Part Picked</td></tr>
+            <tr><td><span class="tier t1">1</span></td><td>any</td><td>any</td><td></td><td>any</td><td><span class="tier t1">1</span></td><td class="id">180</td><td>Part Allocated / Part Shipped</td></tr>
+            <tr><td><span class="tier t2">2</span></td><td><span class="tier t2">2</span></td><td><span class="tier t1">1</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td class="id">240</td><td>Part Picked</td></tr>
+            <tr><td><span class="tier t2">2</span></td><td><span class="tier t2">2</span></td><td><span class="tier t1">1</span></td><td></td><td>any</td><td><span class="tier t1">1</span></td><td class="id">250</td><td>Part Picked / Part Shipped</td></tr>
+            <tr><td><span class="tier t2">2</span></td><td><span class="tier t2">2</span></td><td>any</td><td><span class="tier t1">1</span></td><td><span class="tier t0">0</span></td><td><span class="tier t0">0</span></td><td class="id">270</td><td>In Packing</td></tr>
+            <tr><td><span class="tier t2">2</span></td><td><span class="tier t2">2</span></td><td>any</td><td>any</td><td><span class="tier t1">1</span></td><td><span class="tier t0">0</span></td><td class="id">290</td><td>In Loading &nbsp;<span class="muted">(also matches sub-status 70)</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The full code set</h3>
+      <p>
+        Descriptions live in <code>codes_dtl_master</code> under
+        <code>code_type = 'ORD_DERIVED_STATUS'</code> and <code>whse_id = 'EGY'</code>. One code set
+        serves both the order and the line.
+      </p>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Code</th><th>Description</th><th>Code</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="id">100</td><td>Created Internally</td><td class="id">240</td><td>Part Picked</td></tr>
+            <tr><td class="id">110</td><td>Created Externally</td><td class="id">250</td><td>Part Picked / Part Shipped</td></tr>
+            <tr><td class="id">120</td><td>Empty Order</td><td class="id">260</td><td>Picked Complete</td></tr>
+            <tr><td class="id">130</td><td>Order Grouped</td><td class="id">270</td><td>In Packing</td></tr>
+            <tr><td class="id">140</td><td>Pick Route Created</td><td class="id">280</td><td>Pack Complete</td></tr>
+            <tr><td class="id">145</td><td>Awaiting Allocation</td><td class="id">290</td><td>In Loading</td></tr>
+            <tr><td class="id">150</td><td>Did Not Allocate</td><td class="id">300</td><td>Loaded</td></tr>
+            <tr><td class="id">160</td><td>Part Allocated</td><td class="id">310</td><td>Part Shipped</td></tr>
+            <tr><td class="id">170</td><td>Part Allocated / Part Picked</td><td class="id">320</td><td>Shipped Complete</td></tr>
+            <tr><td class="id">180</td><td>Part Allocated / Part Shipped</td><td class="id">330</td><td>Attempted Delivery</td></tr>
+            <tr><td class="id">190</td><td>Allocated</td><td class="id">340</td><td>Delivery Accepted</td></tr>
+            <tr><td class="id">200</td><td>Part Released</td><td class="id">350</td><td>Delivery Rejected</td></tr>
+            <tr><td class="id">210</td><td>Part Released / Part Picked</td><td class="id">360</td><td>Cancelled Externally</td></tr>
+            <tr><td class="id">220</td><td>Part Released / Part Shipped</td><td class="id">370</td><td>Cancelled Internally</td></tr>
+            <tr><td class="id">230</td><td>Released</td><td class="id"></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Sub-status reference</h4>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>ord_sub_status</th><th>Stage</th><th>Side effect on component statuses</th></tr></thead>
+          <tbody>
+            <tr><td class="num">0</td><td>Cancelled</td><td>Sets general status to 1 (API) or 2 (manual)</td></tr>
+            <tr><td class="num">5</td><td>Empty order</td><td>Sets general status to 5</td></tr>
+            <tr><td class="num">10 · 20</td><td>Created</td><td>—</td></tr>
+            <tr><td class="num">40</td><td>Order grouped</td><td>—</td></tr>
+            <tr><td class="num">50</td><td>Pick route created</td><td>—</td></tr>
+            <tr><td class="num">60</td><td>Released to the floor</td><td>—</td></tr>
+            <tr><td class="num">70</td><td>Picking complete</td><td>Forces pick status to <span class="tier t2">2</span></td></tr>
+            <tr><td class="num">75</td><td>Packing complete</td><td>Forces pack status to <span class="tier t2">2</span></td></tr>
+            <tr><td class="num">78</td><td>Loading complete</td><td>Forces pack and load status to <span class="tier t2">2</span></td></tr>
+            <tr><td class="num">80</td><td>Shipped</td><td>Forces ship status to <span class="tier t2">2</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <span class="tag">Open item — delivery status codes</span>
+        <p>
+          Codes 330, 340 and 350 are matched against the exact literals
+          <code>ATTEMPTED_DELIVERY</code>, <code>DELIVERY_ACCEPTED</code> and
+          <code>DELIVERY_REJECTED</code>, case-sensitively. A design note on file instead calls for
+          case-insensitive matching against space-separated values. Until that is resolved, any
+          delivery code stored in a different form will fall through to 320 (Shipped Complete).
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 7 -->
+    <section id="s7">
+      <h2><span class="num">07</span>Lifecycle walkthrough</h2>
+
+      <p class="lede">
+        One order, start to finish, naming the trigger that fires at each step.
+      </p>
+
+      <div class="stage">
+        <h3>Order created <span class="sub">insert into order_header</span></h3>
+        <p>
+          <span class="obj">T_armx_ORDER_HEADER_INS_GEN_STATUS</span> stamps the general status —
+          12 for an API-created order, 11 for one keyed internally.
+        </p>
+        <p>Header reads <strong>110 Created Externally</strong>; lines are still at their defaults.</p>
+      </div>
+
+      <div class="stage">
+        <h3>Grouped, then routed <span class="sub">ord_sub_status → 40 → 50</span></h3>
+        <p>
+          Each change fires <span class="obj">T_armx_ORDER_HEADER_SUB_STATUS_UPD</span>, which
+          recomputes the header inline, and
+          <span class="obj">T_armx_ORDER_HEADER_LINE_CASCADE_UPD</span>, which pushes the new
+          sub-status down to every line.
+        </p>
+        <p>Header and all lines read <strong>130</strong>, then <strong>140</strong>.</p>
+      </div>
+
+      <div class="stage">
+        <h3>Released to the floor <span class="sub">ord_sub_status → 60</span></h3>
+        <p>
+          Nothing has been allocated yet, so allocation status is still
+          <span class="tier t-1">−1</span> everywhere.
+        </p>
+        <p>Header and lines read <strong>145 Awaiting Allocation</strong>.</p>
+      </div>
+
+      <div class="stage">
+        <h3>Allocation runs <span class="sub">ppcn_pick_pre_plan rows appear</span></h3>
+        <ul>
+          <li><span class="obj">T_armx_PPCN_PICK_PRE_PLAN_ALLOC_UPD</span> resolves each row to an order line and adds its quantity.</li>
+          <li><span class="obj">T_armx_ORDER_DETAIL_LINE_STATUS_UPD</span> moves that line's allocation status to <span class="tier t1">1</span> or <span class="tier t2">2</span> and recomputes its derived status.</li>
+          <li><span class="obj">T_armx_ORDER_DETAIL_ALLOC_QTY_UPDATE</span> carries the delta to the header, and <span class="obj">T_armx_ORDER_HEADER_DERIVED_STATUS_UPD</span> refreshes the header code.</li>
+        </ul>
+        <p>Lines that got stock read <strong>160</strong> or <strong>190</strong>; lines that got none stay at <strong>145</strong> until the attempt completes, then become <strong>150</strong>.</p>
+      </div>
+
+      <div class="stage">
+        <h3>Pre-cartons released <span class="sub">ppcn_hdr.status → 18 or beyond</span></h3>
+        <p>
+          <span class="obj">T_armx_PPCN_HDR_RELEASE_STATUS_UPD</span> (or its batch twin) calls
+          <code>p_armx_order_release_rollup</code>, which recomputes release status for the order
+          and, separately, for each line from its own pre-cartons.
+        </p>
+        <p>Fully released lines read <strong>230 Released</strong>; the order reads <strong>200</strong> until the last pre-carton follows.</p>
+      </div>
+
+      <div class="stage">
+        <h3>Picking <span class="sub">order_detail.ASSIGNED_qty rises</span></h3>
+        <p>
+          <span class="obj">T_armx_ORDER_DETAIL_LINE_STATUS_UPD</span> updates the line;
+          <span class="obj">T_armx_ORDER_DETAIL_PICK_QTY_UPDATE</span> rolls the delta to the header.
+        </p>
+        <p>Reads move through <strong>240 Part Picked</strong>; once the warehouse sets sub-status 70, <strong>260 Picked Complete</strong>.</p>
+      </div>
+
+      <div class="stage">
+        <h3>Packing and loading <span class="sub">pcn_hdr.status → 50 → 60</span></h3>
+        <p>
+          <span class="obj">T_armx_PCN_HDR_PACK_LOAD_STATUS_UPD</span> calls
+          <code>p_armx_order_pack_load_rollup</code>. The header moves to
+          <span class="tier t1">1</span> as soon as any carton reaches the step; each line moves to
+          <span class="tier t2">2</span> only once <em>all</em> of its own cartons have.
+        </p>
+        <p>A line whose cartons are all loaded reads <strong>290 In Loading</strong> while its neighbours may still read <strong>270 In Packing</strong>.</p>
+      </div>
+
+      <div class="stage">
+        <h3>Confirmed and shipped <span class="sub">ord_sub_status → 75 → 78 → 80</span></h3>
+        <p>
+          The sub-status trigger forces pack, load and ship status to
+          <span class="tier t2">2</span> in turn, and the cascade trigger applies the same to every
+          line.
+        </p>
+        <p>Header and lines read <strong>280</strong>, then <strong>300</strong>, then <strong>320 Shipped Complete</strong>.</p>
+      </div>
+
+      <div class="stage">
+        <h3>Delivery outcome <span class="sub">stop1_delv_status_cd set</span></h3>
+        <p>
+          <span class="obj">T_armx_ORDER_HEADER_DERIVED_STATUS_UPD</span> fires on the delivery code
+          itself, and the cascade trigger carries it to the lines.
+        </p>
+        <p>Final read: <strong>330</strong>, <strong>340</strong> or <strong>350</strong>.</p>
+      </div>
+    </section>
+
+    <!-- ============================================ 8 -->
+    <section id="s8">
+      <h2><span class="num">08</span>Backfill &amp; integrity</h2>
+
+      <p>
+        <code>p_armx_order_status_integrity</code> recomputes everything from the source tables,
+        ignoring whatever is currently stored. Use it after installing, after a bulk data load, or
+        whenever a status looks wrong.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Procedure</th><th class="wrap">What it does</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="obj">recompute_line</td>
+              <td class="wrap">One line. Re-sums its allocation, re-derives all six component statuses and the line derived status.</td>
+            </tr>
+            <tr>
+              <td class="obj">recompute_order</td>
+              <td class="wrap">One order. Recomputes every line first, then derives the header quantities as the sum of those lines before recomputing the header statuses.</td>
+            </tr>
+            <tr>
+              <td class="obj">recompute_all</td>
+              <td class="wrap">Every order. Disables the six self-referencing triggers for the duration, commits every 1000 orders, re-enables them at the end — including on failure — and reports counts of processed, updated and errored rows.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Each procedure writes with a single guarded <code>UPDATE</code> that compares every column
+        first, so a row that is already correct is not touched and generates no redo. Errors on one
+        order are logged and skipped rather than aborting the sweep.
+      </p>
+
+      <div class="note">
+        <span class="tag">Lines before header, always</span>
+        <p>
+          Because the header quantities are defined as the sum of the lines, the order matters:
+          <code>recompute_order</code> refreshes the lines, then sums them. Running it also gives you a
+          free consistency check — if a header total was drifting from its lines, this is what
+          corrects it.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 9 -->
+    <section id="s9">
+      <h2><span class="num">09</span>Design constraints</h2>
+
+      <p class="lede">
+        Four rules shaped nearly every structural decision here. They are worth understanding before
+        changing anything.
+      </p>
+
+      <h3>A trigger cannot read its own table</h3>
+      <p>
+        Oracle raises ORA-04091 when a row-level trigger queries the table it fires on. Two features
+        needed exactly that — "have all pre-cartons been released?" and "have all cartons containing
+        this line been packed?" — so both became <strong>compound triggers</strong>: collect the
+        affected order keys row by row, then do the aggregation once the statement has finished.
+        <span class="obj">T_armx_PCN_HDR_PACK_LOAD_STATUS_UPD</span> and the two release triggers all
+        follow this shape, and each delegates the real work to a package so the logic exists once.
+      </p>
+
+      <h3>Self-updates must be BEFORE triggers</h3>
+      <p>
+        Every trigger that sets a column on the table it fires on is a <code>BEFORE</code> trigger
+        assigning to <code>:NEW</code>, never an <code>UPDATE</code> statement — again to avoid the
+        mutating-table error. Triggers that write a <em>different</em> table (the quantity rollups)
+        are <code>AFTER</code> triggers issuing a normal <code>UPDATE</code>.
+      </p>
+
+      <h3>UPDATE OF watches the statement, not the values</h3>
+      <p>
+        An <code>UPDATE OF col</code> trigger fires based on which columns the issuing statement
+        names — not on which <code>:NEW</code> values another trigger happened to change. So when a
+        <code>BEFORE</code> trigger sets component statuses itself, the derived-status trigger will
+        not pick them up, and that trigger has to recompute the derived status inline. This is why
+        the sub-status and <code>std_sku_qty</code> triggers each carry their own copy of the derived
+        status logic.
+      </p>
+      <p>
+        The same mechanism keeps the header and line triggers from looping: their
+        <code>UPDATE OF</code> column lists do not overlap. The cascade fires only on sub, general and
+        delivery status; the line triggers write only quantities and component statuses.
+      </p>
+
+      <h3>Status never steps backwards</h3>
+      <p>
+        Pack, load and release only ever move forward within a trigger path. A carton reverting or
+        being cancelled will not knock a completed status back down, and a status already forced to
+        <span class="tier t2">2</span> by the sub-status is preserved. The integrity package is the
+        deliberate exception — it recomputes from scratch and is the tool for correcting a value that
+        genuinely should come down.
+      </p>
+    </section>
+
+    <!-- ============================================ 10 -->
+    <section id="s10">
+      <h2><span class="num">10</span>Install order</h2>
+
+      <p>
+        <code>dbscripts/</code> is the single source of truth — there is no consolidated install
+        script. Numeric prefixes give the order.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Step</th><th>File</th><th>Contains</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td class="obj">00_order_status_ddl.sql</td><td>Column additions and comments for both tables</td></tr>
+            <tr><td class="num">2</td><td class="obj">01_codes_dtl_master_ord_derived_status.sql</td><td>The 100–370 descriptions</td></tr>
+            <tr><td class="num">3</td><td class="obj">P_*.sql</td><td>All four packages, any order</td></tr>
+            <tr><td class="num">4</td><td class="obj">T_*.sql</td><td>All thirteen triggers</td></tr>
+            <tr><td class="num">5</td><td class="obj">99_verify_order_status_objects.sql</td><td>Expect 4 packages, 4 bodies and 13 triggers, all <code>VALID</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Then run <code>p_armx_order_status_integrity.recompute_all</code> with server output enabled
+        to populate existing rows.
+      </p>
+    </section>
+
+    <footer>
+      Generated from the scripts in <code>dbscripts/</code>. Where this document and the code
+      disagree, the code is correct — please update this page. Companion notes:
+      <code>ORDER_HEADER_STATUS_CONTEXT.md</code> and <code>order-header-status-notes.md</code>.
+    </footer>
+
+  </main>
+</div>
