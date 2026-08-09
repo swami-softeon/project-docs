@@ -344,7 +344,7 @@
     </p>
     <div class="meta-row">
       <div><b>Scope</b> order_header · order_detail</div>
-      <div><b>Objects</b> 4 packages · 13 triggers</div>
+      <div><b>Objects</b> 4 packages · 14 triggers</div>
       <div><b>Source</b> dbscripts/</div>
       <div><b>Warehouse</b> EGY</div>
     </div>
@@ -520,7 +520,7 @@
       <h2><span class="num">03</span>Trigger inventory</h2>
 
       <p class="lede">
-        Thirteen triggers across six tables. Read the "Fires when" column to know what wakes each
+        Fourteen triggers across six tables. Read the "Fires when" column to know what wakes each
         one; read "Writes" to know what it is responsible for.
       </p>
 
@@ -551,12 +551,12 @@
               <td class="obj">T_armx_ORDER_HEADER_STD_SKU_QTY_UPD</td>
               <td>BEFORE UPDATE</td>
               <td><code>std_sku_qty</code> changes</td>
-              <td class="wrap">Pick and alloc status against the new denominator, then derived status</td>
+              <td class="wrap">Reopens the order to sub-status 60 when the quantity <em>increases</em> on a 70/75/78 order, then pick and alloc status against the new denominator, then derived status</td>
             </tr>
             <tr>
               <td class="obj">T_armx_ORDER_HEADER_LINE_CASCADE_UPD</td>
               <td>COMPOUND</td>
-              <td><code>ord_sub_status</code>, <code>ord_genl_status</code> or <code>stop1_delv_status_cd</code> changes</td>
+              <td><code>ord_sub_status</code>, <code>ord_genl_status</code> or <code>stop1_delv_status_cd</code> changes — or <code>std_sku_qty</code> rises enough to reopen the order</td>
               <td class="wrap">Every line's pick, ship, pack, load and derived status</td>
             </tr>
           </tbody>
@@ -570,8 +570,8 @@
           <tbody>
             <tr>
               <td class="obj">T_armx_ORDER_DETAIL_LINE_STATUS_UPD</td>
-              <td>BEFORE UPDATE</td>
-              <td>Any line quantity, or a line pack/load/release/alloc status, changes</td>
+              <td>BEFORE INSERT / UPDATE</td>
+              <td>A line is created, or any line quantity or pack/load/release/alloc status changes</td>
               <td class="wrap">Line pick, ship and alloc status, then <code>ord_line_derived_status</code></td>
             </tr>
             <tr>
@@ -592,8 +592,25 @@
               <td><code>allocated_qty</code> changes</td>
               <td class="wrap">Header <code>allocated_qty</code> + <code>ord_alloc_status</code></td>
             </tr>
+            <tr>
+              <td class="obj">T_armx_ORDER_DETAIL_INS_DEL_QTY_UPD</td>
+              <td>AFTER INSERT / DELETE</td>
+              <td>A whole line is added or removed</td>
+              <td class="wrap">Adds or subtracts that line's picked, shipped and allocated quantity from the header, with each status recomputed only if its own quantity moved</td>
+            </tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">Why lines being added and removed matters</span>
+        <p>
+          Lines can be created and deleted at any point until the order ships, so the three delta
+          triggers above — which only watch <code>UPDATE</code> — are not enough on their own.
+          Without the insert/delete trigger, deleting a picked line left the header's quantities
+          permanently overstated; without the insert arm on the line-status trigger, a newly added
+          line kept a derived status of 0, which is not a valid code.
+        </p>
       </div>
 
       <h4>On the source tables</h4>
@@ -1018,14 +1035,31 @@
         </table>
       </div>
 
+      <h3>Delivery status codes</h3>
+      <p>
+        The codes behind 330, 340 and 350 are <strong>space-separated</strong> — no underscores —
+        and arrive in any mix of upper and lower case, so they are compared on
+        <code>UPPER(TRIM(…))</code>. Trimming also folds a blank-only code to null, which is what
+        makes the plain <em>Shipped Complete</em> (320) case catch both an empty string and spaces.
+        Anything unrecognised falls through to 320 rather than erroring.
+      </p>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Code</th><th>Matches</th></tr></thead>
+          <tbody>
+            <tr><td class="id">330</td><td><code>ATTEMPTED DELIVERY</code></td></tr>
+            <tr><td class="id">340</td><td><code>DELIVER<strong>ED</strong> ACCEPTED</code></td></tr>
+            <tr><td class="id">350</td><td><code>DELIVER<strong>Y</strong> REJECTED</code></td></tr>
+            <tr><td class="id">320</td><td>null, empty or blank</td></tr>
+          </tbody>
+        </table>
+      </div>
       <div class="note warn">
-        <span class="tag">Open item — delivery status codes</span>
+        <span class="tag">Not a typo</span>
         <p>
-          Codes 330, 340 and 350 are matched against the exact literals
-          <code>ATTEMPTED_DELIVERY</code>, <code>DELIVERY_ACCEPTED</code> and
-          <code>DELIVERY_REJECTED</code>, case-sensitively. A design note on file instead calls for
-          case-insensitive matching against space-separated values. Until that is resolved, any
-          delivery code stored in a different form will fall through to 320 (Shipped Complete).
+          The source system spells these two inconsistently — <code>DELIVERED ACCEPTED</code> but
+          <code>DELIVERY REJECTED</code>. Both were verified against production data; they are the
+          only values present on shipped orders. Do not "correct" one to match the other.
         </p>
       </div>
     </section>
@@ -1210,10 +1244,67 @@
         the sub-status and <code>std_sku_qty</code> triggers each carry their own copy of the derived
         status logic.
       </p>
+      <h3>The rule that keeps it acyclic</h3>
       <p>
-        The same mechanism keeps the header and line triggers from looping: their
-        <code>UPDATE OF</code> column lists do not overlap. The cascade fires only on sub, general and
-        delivery status; the line triggers write only quantities and component statuses.
+        Triggers run in both directions — lines roll up to the order, and the order cascades down to
+        its lines. Nothing loops, and that is not luck. It holds because two column sets are kept
+        disjoint:
+      </p>
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Edge</th><th>Writes</th><th>Could it fire the opposite edge?</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>line → order</strong></td>
+              <td><code>picked_qty</code>, <code>shipped_qty</code>, <code>allocated_qty</code> and their statuses</td>
+              <td>No — the cascade watches only sub, general, delivery status and <code>std_sku_qty</code></td>
+            </tr>
+            <tr>
+              <td><strong>order → line</strong></td>
+              <td>the five <code>ord_line_*_status</code> columns</td>
+              <td>No — the three quantity rollups watch only <code>ASSIGNED_qty</code>, <code>shipped_qty</code>, <code>allocated_qty</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Both intersections are empty, so every chain terminates within two statements. The cascade
+        does write line pack and load status, which the line-status trigger watches — but that
+        trigger is <code>BEFORE</code> and only assigns <code>:NEW</code>, so it issues no statement
+        and the chain cannot extend.
+      </p>
+
+      <div class="note warn">
+        <span class="tag">Invariant — check this before adding a trigger</span>
+        <p>
+          A line trigger must never write a column the cascade watches, and the cascade must never
+          write a column that a header-writing line trigger watches. Break either half and the two
+          directions start feeding each other.
+        </p>
+      </div>
+
+      <h3>Reopening an order</h3>
+      <p>
+        There is one deliberate exception to forward-only movement. If <code>std_sku_qty</code>
+        <em>increases</em> on an order already at sub-status 70, 75 or 78, the order is reopened to
+        sub-status 60 so the added quantity can still be allocated and picked. The reopen happens
+        before the pick status is recomputed, so pick status drops from a forced
+        <span class="tier t2">2</span> back to a real comparison against the new denominator.
+      </p>
+      <p>
+        Because the issuing statement only names <code>std_sku_qty</code>, neither the sub-status
+        trigger nor the line cascade would normally notice — hence <code>std_sku_qty</code> appears
+        in the cascade trigger's watch list, so the reopen reaches the lines too.
+      </p>
+      <p>
+        The reopen also clears pack and load status, on the order and on every line. Those columns
+        only ever reach <span class="tier t2">2</span> because the sub-status was 75 or 78, so
+        reverting below 75 removes the justification — this undoes a consequence rather than
+        arbitrarily stepping backward. It is also necessary: no sub-status 60 rule tolerates a pack
+        or load status of <span class="tier t2">2</span>, so leaving them would make the function
+        return null and freeze the derived status at its pre-reopen value. With the clear, an order
+        reopened from 70, 75 or 78 lands on <strong>170 Part Allocated / Part Picked</strong>.
+        The carton-derived value returns on the next carton event, or on the next recompute.
       </p>
 
       <h3>Status never steps backwards</h3>
@@ -1242,8 +1333,8 @@
             <tr><td class="num">1</td><td class="obj">00_order_status_ddl.sql</td><td>Column additions and comments for both tables</td></tr>
             <tr><td class="num">2</td><td class="obj">01_codes_dtl_master_ord_derived_status.sql</td><td>The 100–370 descriptions</td></tr>
             <tr><td class="num">3</td><td class="obj">P_*.sql</td><td>All four packages, any order</td></tr>
-            <tr><td class="num">4</td><td class="obj">T_*.sql</td><td>All thirteen triggers</td></tr>
-            <tr><td class="num">5</td><td class="obj">99_verify_order_status_objects.sql</td><td>Expect 4 packages, 4 bodies and 13 triggers, all <code>VALID</code></td></tr>
+            <tr><td class="num">4</td><td class="obj">T_*.sql</td><td>All fourteen triggers</td></tr>
+            <tr><td class="num">5</td><td class="obj">99_verify_order_status_objects.sql</td><td>Expect 4 packages, 4 bodies and 14 triggers, all <code>VALID</code></td></tr>
           </tbody>
         </table>
       </div>
