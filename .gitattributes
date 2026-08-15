@@ -1,0 +1,3 @@
+# Normalise line endings: store LF in the repo, check out LF everywhere.
+# Keeps publish commits to real content changes instead of whole-file EOL churn.
+* text=auto eol=lf
