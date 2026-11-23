@@ -8,159 +8,90 @@
     body { font-family: Arial, Helvetica, sans-serif; margin: 40px; line-height: 1.6; color: #333; }
     h1 { color: #1f4e79; border-bottom: 3px solid #1f4e79; padding-bottom: 10px; }
     h2 { color: #2f75b5; margin-top: 30px; }
-    h3 { color: #4472c4; }
     .box { background-color: #f4f7fb; border-left: 5px solid #2f75b5; padding: 15px; margin: 15px 0; }
-    pre { background: #1e1e1e; color: #d4d4d4; padding: 15px; overflow-x: auto; border-radius: 4px; font-size: 13px; line-height: 1.45; }
-    button { background: #2f75b5; color: #fff; border: 0; padding: 6px 14px; border-radius: 3px; cursor: pointer; }
+    ul.q { list-style: none; padding-left: 0; }
+    ul.q li { margin: 10px 0; }
+    button.src-link { background: none; border: 0; padding: 0; font: inherit; color: #2f75b5; text-decoration: underline; cursor: pointer; text-align: left; }
+    .desc { color: #666; font-size: 14px; margin-left: 2px; }
     a { color: #2f75b5; }
-    .toc a { margin-right: 18px; }
+    #srcOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); align-items: center; justify-content: center; padding: 24px; z-index: 999; }
+    #srcOverlay.open { display: flex; }
+    #srcPanel { background: #fff; border: 1px solid #d0d0d0; border-radius: 6px; box-shadow: 0 18px 48px rgba(0,0,0,.3); width: min(980px,100%); max-height: min(82vh,900px); display: flex; flex-direction: column; overflow: hidden; }
+    #srcHead { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-bottom: 1px solid #d0d0d0; background: #f4f7fb; flex: none; }
+    #srcName { font-family: Consolas, monospace; font-size: 12.5px; color: #1f4e79; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #srcHead button { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; padding: 6px 12px; border-radius: 4px; border: 1px solid #d0d0d0; background: #fff; color: #444; cursor: pointer; }
+    #srcHead button:hover { border-color: #888; }
+    #srcCopy.done { color: #2e7d32; border-color: #2e7d32; }
+    #srcBody { overflow: auto; flex: 1 1 auto; min-height: 0; }
+    #srcBody pre { margin: 0; padding: 16px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.55; tab-size: 4; white-space: pre; }
 </style>
 </head>
 <body>
 <p><a href="index.html">&larr; Shiperoo</a></p>
 <h1>Shiperoo - Important Queries</h1>
-<p class="toc"><strong>Contents:</strong> <a href="#allocation">Allocation</a></p>
 
 <h2 id="allocation">Allocation</h2>
-
 <div class="box">
-    <strong>Context:</strong> <code>order_header.ord_sub_status</code> 10 = waiting for allocation; 20 = all lines fully allocated.
-    <code>order_detail.alloc_qty</code> is updated as soon as a line is allocated, so a status-10 order can hold units on some lines
-    while other lines are short. Those units can block other orders. Allocation runs every 10 minutes.
-    Both queries are read-only, assume no free stock, and need the company set in the <code>params</code> CTE.
+    <code>order_header.ord_sub_status</code> 10 = waiting for allocation; 20 = all lines fully allocated.
+    A status-10 order can hold allocated units on some lines while other lines are short, blocking other orders.
+    Both queries are read-only and assume no free stock; set the company in the <code>params</code> CTE. Click a link to view the query and copy it.
+</div>
+<ul class="q">
+    <li><button type="button" class="src-link" data-src="allocation_release_and_hold_orders">Orders to de-allocate and hold so other orders can move on</button><br>
+        <span class="desc">Lists status-10 orders whose allocation can be released and held, so waiting orders can fully allocate on the next run.</span></li>
+    <li><button type="button" class="src-link" data-src="allocation_release_and_hold_count">Count of orders that will be released</button><br>
+        <span class="desc">Same logic, summarised: orders to release and hold, units freed, orders expected to complete.</span></li>
+</ul>
+
+<div id="srcOverlay" role="dialog" aria-modal="true" aria-labelledby="srcName">
+  <div id="srcPanel">
+    <div id="srcHead">
+      <span id="srcName"></span>
+      <button type="button" id="srcCopy">Copy</button>
+      <button type="button" id="srcClose">Close</button>
+    </div>
+    <div id="srcBody"><pre><code id="srcCode"></code></pre></div>
+  </div>
 </div>
 
-<h3>1. Orders to de-allocate and hold, so other orders can move on</h3>
-<p>Returns the orders (status 10, holding units) whose allocation can be released and then put on hold, so that waiting orders can fully allocate on the next run.</p>
-<button onclick="copyq('q1',this)">Copy</button>
-<pre id="q1">-- Orders to de-allocate + hold so that other waiting orders (ord_sub_status=10) can fully allocate.
--- Read-only. Change the company in params. Assumption: no free stock (allocation runs every 10 min).
-WITH RECURSIVE
-params AS (SELECT &#x27;&lt;COMPANY_NO&gt;&#x27;::text AS company_no),
-lines AS (
-  SELECT d.ord_no, d.sku,
-         SUM(d.ord_qty)::numeric                 AS ord_qty,
-         SUM(COALESCE(d.alloc_qty,0))::numeric   AS alloc_qty
-  FROM order_detail d
-  JOIN order_header h ON h.company_no = d.company_no AND h.ord_no = d.ord_no
-  JOIN params p ON p.company_no = h.company_no
-  WHERE h.ord_sub_status = 10
-  GROUP BY d.ord_no, d.sku
-),
--- pool = everything currently held by waiting orders (what could be redistributed)
-pool0 AS (SELECT jsonb_object_agg(sku, held) AS pool FROM (SELECT sku, SUM(alloc_qty) held FROM lines GROUP BY sku) x),
--- smallest orders first
-ranked AS (
-  SELECT ord_no, ROW_NUMBER() OVER (ORDER BY SUM(ord_qty), ord_no) rn
-  FROM lines GROUP BY ord_no
-),
-n AS (SELECT MAX(rn) mx FROM ranked),
--- greedy: walk orders smallest-first, take an order if the pool covers ALL its lines, then deplete pool
-walk(rn, pool, picked) AS (
-  SELECT 0, (SELECT pool FROM pool0), NULL::text
-  UNION ALL
-  SELECT w.rn+1,
-    CASE WHEN ok.fits THEN
-      (SELECT w.pool || COALESCE(jsonb_object_agg(l.sku, (w.pool-&gt;&gt;l.sku)::numeric - l.ord_qty), &#x27;{}&#x27;::jsonb)
-         FROM lines l WHERE l.ord_no = r.ord_no)
-    ELSE w.pool END,
-    CASE WHEN ok.fits THEN r.ord_no END
-  FROM walk w
-  JOIN ranked r ON r.rn = w.rn+1
-  CROSS JOIN LATERAL (
-    SELECT NOT EXISTS (SELECT 1 FROM lines l WHERE l.ord_no=r.ord_no
-                       AND COALESCE((w.pool-&gt;&gt;l.sku)::numeric,0) &lt; l.ord_qty) AS fits
-  ) ok
-),
-will_complete AS (SELECT picked AS ord_no FROM walk WHERE picked IS NOT NULL),
--- extra units those orders still need, per SKU
-need AS (
-  SELECT l.sku, SUM(l.ord_qty - l.alloc_qty) need_qty
-  FROM lines l JOIN will_complete w USING (ord_no)
-  GROUP BY l.sku HAVING SUM(l.ord_qty - l.alloc_qty) &gt; 0
-),
--- candidate holders: not completing, holding units of a needed SKU; biggest holders first per SKU
-holders AS (
-  SELECT l.ord_no, l.sku, l.alloc_qty, n.need_qty,
-         COALESCE(SUM(l.alloc_qty) OVER (PARTITION BY l.sku ORDER BY l.alloc_qty DESC, l.ord_no
-                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS cum_before
-  FROM lines l
-  JOIN need n ON n.sku = l.sku
-  WHERE l.alloc_qty &gt; 0 AND l.ord_no NOT IN (SELECT ord_no FROM will_complete)
-),
-release AS (SELECT DISTINCT ord_no FROM holders WHERE cum_before &lt; need_qty)
-SELECT r.ord_no AS order_to_release_and_hold,
-       (SELECT SUM(alloc_qty) FROM lines l WHERE l.ord_no = r.ord_no) AS units_released
-FROM release r
-ORDER BY 1;
-</pre>
-
-<h3>2. Count of orders that will be released</h3>
-<p>Same logic, summarised: orders to release and hold, units freed, and orders expected to complete.</p>
-<button onclick="copyq('q2',this)">Copy</button>
-<pre id="q2">-- Orders to de-allocate + hold so that other waiting orders (ord_sub_status=10) can fully allocate.
--- Read-only. Change the company in params. Assumption: no free stock (allocation runs every 10 min).
-WITH RECURSIVE
-params AS (SELECT &#x27;&lt;COMPANY_NO&gt;&#x27;::text AS company_no),
-lines AS (
-  SELECT d.ord_no, d.sku,
-         SUM(d.ord_qty)::numeric                 AS ord_qty,
-         SUM(COALESCE(d.alloc_qty,0))::numeric   AS alloc_qty
-  FROM order_detail d
-  JOIN order_header h ON h.company_no = d.company_no AND h.ord_no = d.ord_no
-  JOIN params p ON p.company_no = h.company_no
-  WHERE h.ord_sub_status = 10
-  GROUP BY d.ord_no, d.sku
-),
--- pool = everything currently held by waiting orders (what could be redistributed)
-pool0 AS (SELECT jsonb_object_agg(sku, held) AS pool FROM (SELECT sku, SUM(alloc_qty) held FROM lines GROUP BY sku) x),
--- smallest orders first
-ranked AS (
-  SELECT ord_no, ROW_NUMBER() OVER (ORDER BY SUM(ord_qty), ord_no) rn
-  FROM lines GROUP BY ord_no
-),
-n AS (SELECT MAX(rn) mx FROM ranked),
--- greedy: walk orders smallest-first, take an order if the pool covers ALL its lines, then deplete pool
-walk(rn, pool, picked) AS (
-  SELECT 0, (SELECT pool FROM pool0), NULL::text
-  UNION ALL
-  SELECT w.rn+1,
-    CASE WHEN ok.fits THEN
-      (SELECT w.pool || COALESCE(jsonb_object_agg(l.sku, (w.pool-&gt;&gt;l.sku)::numeric - l.ord_qty), &#x27;{}&#x27;::jsonb)
-         FROM lines l WHERE l.ord_no = r.ord_no)
-    ELSE w.pool END,
-    CASE WHEN ok.fits THEN r.ord_no END
-  FROM walk w
-  JOIN ranked r ON r.rn = w.rn+1
-  CROSS JOIN LATERAL (
-    SELECT NOT EXISTS (SELECT 1 FROM lines l WHERE l.ord_no=r.ord_no
-                       AND COALESCE((w.pool-&gt;&gt;l.sku)::numeric,0) &lt; l.ord_qty) AS fits
-  ) ok
-),
-will_complete AS (SELECT picked AS ord_no FROM walk WHERE picked IS NOT NULL),
--- extra units those orders still need, per SKU
-need AS (
-  SELECT l.sku, SUM(l.ord_qty - l.alloc_qty) need_qty
-  FROM lines l JOIN will_complete w USING (ord_no)
-  GROUP BY l.sku HAVING SUM(l.ord_qty - l.alloc_qty) &gt; 0
-),
--- candidate holders: not completing, holding units of a needed SKU; biggest holders first per SKU
-holders AS (
-  SELECT l.ord_no, l.sku, l.alloc_qty, n.need_qty,
-         COALESCE(SUM(l.alloc_qty) OVER (PARTITION BY l.sku ORDER BY l.alloc_qty DESC, l.ord_no
-                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS cum_before
-  FROM lines l
-  JOIN need n ON n.sku = l.sku
-  WHERE l.alloc_qty &gt; 0 AND l.ord_no NOT IN (SELECT ord_no FROM will_complete)
-),
-release AS (SELECT DISTINCT ord_no FROM holders WHERE cum_before &lt; need_qty)
-SELECT (SELECT COUNT(*) FROM release)       AS orders_to_release_and_hold,
-       (SELECT SUM(l.alloc_qty) FROM lines l WHERE l.ord_no IN (SELECT ord_no FROM release)) AS units_freed,
-       (SELECT COUNT(*) FROM will_complete)  AS orders_that_will_complete;
-</pre>
-
+<script id="srcData" type="application/json">{"allocation_release_and_hold_orders": "-- Orders to de-allocate + hold so that other waiting orders (ord_sub_status=10) can fully allocate.\n-- Read-only. Change the company in params. Assumption: no free stock (allocation runs every 10 min).\nWITH RECURSIVE\nparams AS (SELECT '<COMPANY_NO>'::text AS company_no),\nlines AS (\n  SELECT d.ord_no, d.sku,\n         SUM(d.ord_qty)::numeric                 AS ord_qty,\n         SUM(COALESCE(d.alloc_qty,0))::numeric   AS alloc_qty\n  FROM order_detail d\n  JOIN order_header h ON h.company_no = d.company_no AND h.ord_no = d.ord_no\n  JOIN params p ON p.company_no = h.company_no\n  WHERE h.ord_sub_status = 10\n  GROUP BY d.ord_no, d.sku\n),\n-- pool = everything currently held by waiting orders (what could be redistributed)\npool0 AS (SELECT jsonb_object_agg(sku, held) AS pool FROM (SELECT sku, SUM(alloc_qty) held FROM lines GROUP BY sku) x),\n-- smallest orders first\nranked AS (\n  SELECT ord_no, ROW_NUMBER() OVER (ORDER BY SUM(ord_qty), ord_no) rn\n  FROM lines GROUP BY ord_no\n),\nn AS (SELECT MAX(rn) mx FROM ranked),\n-- greedy: walk orders smallest-first, take an order if the pool covers ALL its lines, then deplete pool\nwalk(rn, pool, picked) AS (\n  SELECT 0, (SELECT pool FROM pool0), NULL::text\n  UNION ALL\n  SELECT w.rn+1,\n    CASE WHEN ok.fits THEN\n      (SELECT w.pool || COALESCE(jsonb_object_agg(l.sku, (w.pool->>l.sku)::numeric - l.ord_qty), '{}'::jsonb)\n         FROM lines l WHERE l.ord_no = r.ord_no)\n    ELSE w.pool END,\n    CASE WHEN ok.fits THEN r.ord_no END\n  FROM walk w\n  JOIN ranked r ON r.rn = w.rn+1\n  CROSS JOIN LATERAL (\n    SELECT NOT EXISTS (SELECT 1 FROM lines l WHERE l.ord_no=r.ord_no\n                       AND COALESCE((w.pool->>l.sku)::numeric,0) < l.ord_qty) AS fits\n  ) ok\n),\nwill_complete AS (SELECT picked AS ord_no FROM walk WHERE picked IS NOT NULL),\n-- extra units those orders still need, per SKU\nneed AS (\n  SELECT l.sku, SUM(l.ord_qty - l.alloc_qty) need_qty\n  FROM lines l JOIN will_complete w USING (ord_no)\n  GROUP BY l.sku HAVING SUM(l.ord_qty - l.alloc_qty) > 0\n),\n-- candidate holders: not completing, holding units of a needed SKU; biggest holders first per SKU\nholders AS (\n  SELECT l.ord_no, l.sku, l.alloc_qty, n.need_qty,\n         COALESCE(SUM(l.alloc_qty) OVER (PARTITION BY l.sku ORDER BY l.alloc_qty DESC, l.ord_no\n                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS cum_before\n  FROM lines l\n  JOIN need n ON n.sku = l.sku\n  WHERE l.alloc_qty > 0 AND l.ord_no NOT IN (SELECT ord_no FROM will_complete)\n),\nrelease AS (SELECT DISTINCT ord_no FROM holders WHERE cum_before < need_qty)\nSELECT r.ord_no AS order_to_release_and_hold,\n       (SELECT SUM(alloc_qty) FROM lines l WHERE l.ord_no = r.ord_no) AS units_released\nFROM release r\nORDER BY 1;\n", "allocation_release_and_hold_count": "-- Orders to de-allocate + hold so that other waiting orders (ord_sub_status=10) can fully allocate.\n-- Read-only. Change the company in params. Assumption: no free stock (allocation runs every 10 min).\nWITH RECURSIVE\nparams AS (SELECT '<COMPANY_NO>'::text AS company_no),\nlines AS (\n  SELECT d.ord_no, d.sku,\n         SUM(d.ord_qty)::numeric                 AS ord_qty,\n         SUM(COALESCE(d.alloc_qty,0))::numeric   AS alloc_qty\n  FROM order_detail d\n  JOIN order_header h ON h.company_no = d.company_no AND h.ord_no = d.ord_no\n  JOIN params p ON p.company_no = h.company_no\n  WHERE h.ord_sub_status = 10\n  GROUP BY d.ord_no, d.sku\n),\n-- pool = everything currently held by waiting orders (what could be redistributed)\npool0 AS (SELECT jsonb_object_agg(sku, held) AS pool FROM (SELECT sku, SUM(alloc_qty) held FROM lines GROUP BY sku) x),\n-- smallest orders first\nranked AS (\n  SELECT ord_no, ROW_NUMBER() OVER (ORDER BY SUM(ord_qty), ord_no) rn\n  FROM lines GROUP BY ord_no\n),\nn AS (SELECT MAX(rn) mx FROM ranked),\n-- greedy: walk orders smallest-first, take an order if the pool covers ALL its lines, then deplete pool\nwalk(rn, pool, picked) AS (\n  SELECT 0, (SELECT pool FROM pool0), NULL::text\n  UNION ALL\n  SELECT w.rn+1,\n    CASE WHEN ok.fits THEN\n      (SELECT w.pool || COALESCE(jsonb_object_agg(l.sku, (w.pool->>l.sku)::numeric - l.ord_qty), '{}'::jsonb)\n         FROM lines l WHERE l.ord_no = r.ord_no)\n    ELSE w.pool END,\n    CASE WHEN ok.fits THEN r.ord_no END\n  FROM walk w\n  JOIN ranked r ON r.rn = w.rn+1\n  CROSS JOIN LATERAL (\n    SELECT NOT EXISTS (SELECT 1 FROM lines l WHERE l.ord_no=r.ord_no\n                       AND COALESCE((w.pool->>l.sku)::numeric,0) < l.ord_qty) AS fits\n  ) ok\n),\nwill_complete AS (SELECT picked AS ord_no FROM walk WHERE picked IS NOT NULL),\n-- extra units those orders still need, per SKU\nneed AS (\n  SELECT l.sku, SUM(l.ord_qty - l.alloc_qty) need_qty\n  FROM lines l JOIN will_complete w USING (ord_no)\n  GROUP BY l.sku HAVING SUM(l.ord_qty - l.alloc_qty) > 0\n),\n-- candidate holders: not completing, holding units of a needed SKU; biggest holders first per SKU\nholders AS (\n  SELECT l.ord_no, l.sku, l.alloc_qty, n.need_qty,\n         COALESCE(SUM(l.alloc_qty) OVER (PARTITION BY l.sku ORDER BY l.alloc_qty DESC, l.ord_no\n                  ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS cum_before\n  FROM lines l\n  JOIN need n ON n.sku = l.sku\n  WHERE l.alloc_qty > 0 AND l.ord_no NOT IN (SELECT ord_no FROM will_complete)\n),\nrelease AS (SELECT DISTINCT ord_no FROM holders WHERE cum_before < need_qty)\nSELECT (SELECT COUNT(*) FROM release)       AS orders_to_release_and_hold,\n       (SELECT SUM(l.alloc_qty) FROM lines l WHERE l.ord_no IN (SELECT ord_no FROM release)) AS units_freed,\n       (SELECT COUNT(*) FROM will_complete)  AS orders_that_will_complete;\n"}</script>
 <script>
-function copyq(id,b){navigator.clipboard.writeText(document.getElementById(id).innerText).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)})}
+(function () {
+  var SOURCES = JSON.parse(document.getElementById('srcData').textContent);
+  var overlay = document.getElementById('srcOverlay');
+  var nameEl = document.getElementById('srcName');
+  var codeEl = document.getElementById('srcCode');
+  var copyBtn = document.getElementById('srcCopy');
+  var lastFocus = null;
+  function open(key) {
+    var sql = SOURCES[key]; if (!sql) { return; }
+    lastFocus = document.activeElement;
+    nameEl.textContent = key + '.sql';
+    codeEl.textContent = sql;
+    overlay.classList.add('open');
+    document.getElementById('srcBody').scrollTop = 0;
+    copyBtn.textContent = 'Copy'; copyBtn.classList.remove('done'); copyBtn.focus();
+  }
+  function close() { overlay.classList.remove('open'); if (lastFocus && lastFocus.focus) { lastFocus.focus(); } }
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest ? e.target.closest('.src-link') : null;
+    if (link) { e.preventDefault(); open(link.getAttribute('data-src')); return; }
+    if (e.target === overlay) { close(); }
+  });
+  document.getElementById('srcClose').addEventListener('click', close);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && overlay.classList.contains('open')) { close(); } });
+  copyBtn.addEventListener('click', function () {
+    var text = codeEl.textContent;
+    function ok() { copyBtn.textContent = 'Copied'; copyBtn.classList.add('done'); setTimeout(function () { copyBtn.textContent = 'Copy'; copyBtn.classList.remove('done'); }, 1600); }
+    function fallback() {
+      var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); ok(); } catch (err) {}
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(ok, fallback); } else { fallback(); }
+  });
+})();
 </script>
 </body>
 </html>
